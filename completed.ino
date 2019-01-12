@@ -13,12 +13,6 @@ byte mac[] = { 0x90, 0xA2, 0xDA, 0x06, 0x00, 0x30 };
 IPAddress hueHubIP(192,168,1,214);  // Hue hub IP
 const char hueUsername[] = "OqQP9WDrHorWMFttPiuGhzSSV2sW0K29x8ZWVzWd";  // Hue username
 const int hueHubPort = 80;
- 
-const int hueBriMax = 255;  // max brightness value
-const int hueBriStep = 64;  // brightness step size when button 1 is pressed (256/64 = 4 steps)
- 
-const long hueHueMax = 65535;  // max hue value
-const long hueHueStep = 6553;  // hue step size when button 2 is pressed (65536/10922 = 6 steps)
 
 //  Hue variables
  
@@ -26,6 +20,7 @@ unsigned int hueLight = 2;  // target light (designed to be changed)
 boolean hueOn;  // on/off
 int hueBri;  // brightness value
 long hueHue;  // hue value
+String gotGet; // get message from lamp status
 String hueCmd;  // Hue command
 String message_buff; // Message received from MQTT
 
@@ -41,6 +36,7 @@ const IPAddress ip(192, 168, 0, 177);
 EthernetClient ethClient;
 EthernetClient ethClient2;
 PubSubClient client;
+PubSubClient client2;
 
 const char *mqtt_server = "m15.cloudmqtt.com";
 const int mqtt_port = 13274;
@@ -90,18 +86,24 @@ boolean GetHue()
     {
       if (ethClient.available())
       {
-        /*
+        gotGet = "";/*
         Serial.print("av: ");
         Serial.print(availableMemory());
-        Serial.print(" "); 
-        //gotGet = ethClient.readStringUntil('\0');
+        Serial.print(" "); */
+        ethClient.readStringUntil('{');
+        gotGet += ethClient.readStringUntil(',');
+        gotGet += ethClient.readStringUntil(',');
+        gotGet += ethClient.readStringUntil(',');
+        ethClient.readStringUntil('\0');
         Serial.println(availableMemory());
-        //Serial.print("gGet: ");
-        //Serial.println(gotGet); */
+        
+        Serial.print("gGet: ");
+        Serial.println(gotGet);
         Serial.print("hueCmd: ");
         Serial.println(hueCmd);
         Serial.print("msgRec: ");
         Serial.println(message_buff);
+        
         
         
         break;  // not capturing other light attributes yet
@@ -157,7 +159,8 @@ void showState()
 
 void callback(char* topic, byte* payload, unsigned int length) {
   
-  Serial.print("Message arrived [");
+  /// Incoming message 
+  Serial.print("Message arrived from CloudMQTT [");
   Serial.print(topic);
   hueLight = topic[5] - '0';
   Serial.print("] ");
@@ -169,10 +172,12 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.println();
 }
 
+
+
 void reconnect() {
   // Loop until we're reconnected
   while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
+    Serial.print("Attempting MQTT connection ... ");
     // Attempt to connect
     if (client.connect(mqtt_client_name, mqtt_user, mqtt_pass)) {
       Serial.println("connected");
@@ -189,6 +194,7 @@ void reconnect() {
     }
   }
 }
+
 
 void setup()
 {
@@ -219,48 +225,49 @@ void loop()
   }
   client.loop();
 
-  if (GetHue())  // get light state
-  {
-    //showState();
-    hueCmd = "";  // initialize command
+  hueCmd = "";  // initialize command
 
-    if(switch_on)
+  /*
+  if (switch_on)  // get light state
+  {
+    if( GetHue() )
     {
-      if(altern_on)
-      {
-        hueCmd = "{\"on\":true";
-        altern_on_tmp = false;     
-      }
-      else
-      {
-        hueCmd = "{\"on\":false";
-        //hueCmd = "{\"on\":true";
-        altern_on_tmp = true;
-      }
-  
-      altern_on = altern_on_tmp;
-      
-      hueCmd += ",\"bri\":50";
-      hueCmd += ",\"hue\":" + String(offlineHue) + "}";
-      
-      SetHue();
+        if(altern_on)
+        {
+          hueCmd = "{\"on\":true";
+          altern_on_tmp = false;     
+        }
+        else
+        {
+          hueCmd = "{\"on\":false";
+          //hueCmd = "{\"on\":true";
+          altern_on_tmp = true;
+        }
+    
+        altern_on = altern_on_tmp;
+        
+        hueCmd += ",\"bri\":50";
+        hueCmd += ",\"hue\":" + String(offlineHue) + "}";
+        
+        SetHue();
     }
-
+    else
+    {
+      Serial.println("Fail to getHue");
+    }
   }
-  else
-  {
-    Serial.println("Fail to getHue");
-  }
+  */
+  
 
 
   if(message_buff != "") // When a message is received, stop alterning on/off
   {
-    Serial.println(message_buff);
+    //Serial.println(message_buff);
 
     hueCmd = message_buff;
     //hueCmd += ",\"bri\":1";
     //hueCmd += ",\"hue\":" + String(offlineHue) + "}";
-    Serial.println("Message sent: ");
+    Serial.println("Message sent to Hub: ");
     Serial.print(hueCmd);
     SetHue();
     
@@ -268,6 +275,38 @@ void loop()
     switch_on = false;
   }
 
-  delay(1000);
+      /// Sending message of the state of all lamps
+    char tmp_get[50];
+    
+    hueLight = 1;
+    if ( GetHue() ) {}
+    else Serial.println("Fail to GetHue of lamp 1");
+    for(int i=0; i<gotGet.length(); i++) // Copy gotGet to a char[50]
+      tmp_get[i] = gotGet[i];
+    tmp_get[gotGet.length()] = '\0';
+    client.publish("lampstate/1", tmp_get);
+    tmp_get[0] = '\0';
+    
+    hueLight = 2;
+    if ( GetHue() ) {}
+    else Serial.println("Fail to GetHue of lamp 2");
+    for(int i=0; i<gotGet.length(); i++) // Copy gotGet to a char[50]
+      tmp_get[i] = gotGet[i];
+    tmp_get[gotGet.length()] = '\0';
+    client.publish("lampstate/2", tmp_get);
+    tmp_get[0] = '\0';
+    
+    hueLight = 3;
+    if ( GetHue() ) {}
+    else Serial.println("Fail to GetHue of lamp 3");
+    for(int i=0; i<gotGet.length(); i++) // Copy gotGet to a char[50]
+      tmp_get[i] = gotGet[i];
+    tmp_get[gotGet.length()] = '\0';
+    client.publish("lampstate/3", tmp_get);
+    tmp_get[0] = '\0';
+
+
+
+  delay(3000);
   
 }
